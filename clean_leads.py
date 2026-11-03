@@ -36,15 +36,42 @@ CORPORATE_CHAINS = {
 }
 
 CITY_NAME_COLLISIONS = {
+    # Texas city collisions
     "austin", "allen", "bryan", "tyler", "kyle", "victoria", "marshall",
     "taylor", "paris", "clyde", "brady", "clifton", "jasper", "kermit", "vernon",
-    "tomball", "georgetown", "angelo", "houston", "dallas", "irving", "denton"
+    "tomball", "georgetown", "angelo", "houston", "dallas", "irving", "denton",
+    # California city collisions
+    "tracy", "carson", "davis", "roseville", "bell", "stanton", "campbell", "dixon",
+    "selma", "reedley", "patterson", "livingston", "ripon", "sanger", "lindsay",
+    "fowler", "kerman", "anaheim", "pasadena", "burbank", "torrance", "glendale",
+    "fremont", "modesto", "fresno", "clovis", "victorville", "corona", "ontario",
+    "pomona", "salinas", "monterey", "napa", "irvine", "berkeley", "oakland",
+    "vallejo", "fairfield", "hayward", "sunnyvale", "redwood", "richmond", "santee",
+    "chino", "banning", "chico", "merced", "delano", "folsom", "lodi", "cypress",
+    "manteca", "hemet", "eureka", "oxnard",
+    # Florida city collisions
+    "brandon", "hollywood", "davie", "sebastian", "stuart", "perry", "milton", 
+    "destin", "marathon", "melbourne", "clearwater", "gainesville", "ocala", 
+    "sanford", "clermont", "naples", "venice", "titusville", "apopka", "doral", 
+    "largo", "oviedo", "delray", "hialeah", "bradenton", "kissimmee", "sarasota", 
+    "lakeland", "orlando", "tampa", "miami", "pensacola", "tallahassee", 
+    "jacksonville", "eustis", "bartow", "dania", "lauderhill", "miramar", "aventura", "cutler"
 }
 
 # যেসব শব্দের শুরুতে মানুষের নামের অক্ষর থাকে কিন্তু আসলে সেগুলো নাম নয় (যেমন: elite -> eli, tomball -> tom)
 COMPOUND_COLLISIONS = (
     "elite", "tomball", "georgetown", "angelo", "jones", "davidson", "richardson",
     "anaheim", "anatire", "allready", "allstar", "allen", "austin", "bryan", "tyler",
+    "tracy", "carson", "davis", "roseville", "bell", "stanton", "campbell", "dixon",
+    "selma", "reedley", "patterson", "livingston", "ripon", "sanger", "lindsay",
+    "fowler", "kerman", "pasadena", "burbank", "torrance", "glendale", "fremont",
+    "modesto", "fresno", "clovis", "victorville", "corona", "ontario", "pomona",
+    "richmond", "santee", "chino", "banning", "chico", "merced", "delano", "folsom",
+    "lodi", "cypress", "manteca", "hemet", "eureka", "oxnard",
+    "brandon", "hollywood", "davie", "sebastian", "stuart", "perry", "milton", 
+    "destin", "marathon", "melbourne", "clearwater", "gainesville", "ocala", 
+    "sanford", "clermont", "naples", "venice", "titusville", "apopka", "doral", 
+    "largo", "oviedo", "delray", "hialeah", "dania", "lauderhill", "miramar",
     "christian", "christopher", "franklin", "jackson", "jefferson", "madison", "monroe",
     "washington", "hamilton", "lincoln", "garland", "harlingen", "rosenberg", "sherman",
     "raymondville", "stephenville", "robstown", "levelland", "marlin", "martindale"
@@ -117,7 +144,13 @@ GENERIC_EMAIL_PREFIXES = {
     "parts", "feedback", "frontdesk", "inbox", "team", "care", "auto", "shop"
 }
 
-ACRONYMS = {"BMW", "USA", "ATX", "DFW", "HTX", "TX", "NW", "NE", "SW", "SE", "II", "III", "VIP", "PRO", "BBS", "MD", "AA", "JB", "JC", "JJ", "JR", "RV", "AC", "P3", "ASE", "GMR", "A1"}
+ACRONYMS = {
+    "BMW", "USA", "ATX", "DFW", "HTX", "TX", "CA", "FL", "LA", "OC", "SF", "SD", "IE", "BAY", 
+    "CAL", "NORCAL", "SOCAL", "SJC", "OAK", "BUR", "LGB", "MIA", "ORL", "TPA", "JAX", "FLL", 
+    "PBI", "SWFL", "CFL", "NFL", "SFL", "KEY", "SOFLO", "TB", "NW", "NE", "SW", "SE", "II", 
+    "III", "VIP", "PRO", "BBS", "MD", "AA", "JB", "JC", "JJ", "JR", "RV", "AC", "P3", 
+    "ASE", "GMR", "A1"
+}
 
 def clean_company_name(raw_name):
     if not raw_name:
@@ -229,27 +262,30 @@ def main():
     with open(INPUT_FILE, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            email = row.get("email", "").strip().lower()
-            website = row.get("website", "").strip().lower()
-            cleaned_company = clean_company_name(row.get("name", ""))
+            clean_row = {k: v for k, v in row.items() if k is not None}
+            email = clean_row.get("email", "").strip().lower()
+            website = clean_row.get("website", "").strip().lower()
+            cleaned_company = clean_company_name(clean_row.get("name", ""))
 
+            if not email or "@" not in email:
+                continue
             if not is_valid_campaign_email(email, cleaned_company):
                 continue
             if email in seen_emails or (website and website in seen_websites):
                 continue
 
             first_name = infer_first_name(cleaned_company, email)
-            cleaned_addr = clean_address(row.get("address", ""))
+            cleaned_addr = clean_address(clean_row.get("address", ""))
 
             lead = {
                 "First Name": first_name,
                 "Company Name": cleaned_company,
                 "Email": email,
-                "Website": row.get("website", "").strip(),
-                "Phone": row.get("phone", "").strip(),
+                "Website": clean_row.get("website", "").strip(),
+                "Phone": clean_row.get("phone", "").strip(),
                 "Address": cleaned_addr,
-                "City": row.get("city", "").strip().title(),
-                "State": row.get("state", "").strip().upper()
+                "City": clean_row.get("city", "").strip().title(),
+                "State": clean_row.get("state", "").strip().upper()
             }
 
             seen_emails.add(email)
@@ -263,7 +299,7 @@ def main():
     ]
 
     with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         for lead in clean_leads:
             writer.writerow(lead)

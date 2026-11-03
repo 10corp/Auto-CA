@@ -18,14 +18,15 @@ from urllib.parse import quote_plus
 from playwright.sync_api import sync_playwright
 
 OUTPUT_FILE = "shops.csv"
+NO_WEBSITE_FILE = "no-website.csv"
 QUERIES_FILE = "queries.txt"
 COMPLETED_QUERIES_FILE = "completed_queries.txt"
 
 # Default configuration
 DEFAULT_QUERIES = [
-    "auto body shop in Austin TX",
-    "auto body shop in Dallas TX",
-    "auto body shop in Houston TX"
+    "auto body shop in Los Angeles CA",
+    "auto body shop in San Diego CA",
+    "auto body shop in San Jose CA"
 ]
 MAX_RESULTS_PER_QUERY = 120   # Maximum depth Google Maps can load per query
 BATCH_SIZE = 3                # Batch grouping
@@ -43,7 +44,7 @@ def extract_phone(text):
     return m.group(1).strip() if m else ""
 
 def parse_city_state(query, address):
-    city, state = "", "TX"
+    city, state = "", "CA"
     m = re.search(r"\bin\s+([A-Za-z\s]+)\s+([A-Z]{2})\b", query, re.I)
     if m:
         city = m.group(1).strip().title()
@@ -97,14 +98,56 @@ def save_shops(shops):
         for s in shops:
             writer.writerow(s)
 
+def load_existing_no_website():
+    records = []
+    seen = set()
+    if os.path.exists(NO_WEBSITE_FILE):
+        try:
+            with open(NO_WEBSITE_FILE, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for r in reader:
+                    records.append(r)
+                    key = r.get("name", "").lower().strip()
+                    if key:
+                        seen.add(key)
+        except Exception:
+            pass
+    return records, seen
+
+def save_no_website(records):
+    fieldnames = ["name", "phone", "address", "city", "state", "rating", "google_maps_url"]
+    with open(NO_WEBSITE_FILE, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for r in records:
+            writer.writerow(r)
+
+NON_AUTO_KEYWORDS = (
+    "massage", "spa", "wellness", "nail", "wax", "beauty", "hair", 
+    "salon", "parlour", "facial", "barber", "lashes", "ageless", 
+    "skin", "botox", "clinic", "derma", "medspa", "sculpt", "dental", 
+    "fitness", "yoga"
+)
+
+def is_non_auto_spam(name):
+    lower = name.lower()
+    for kw in NON_AUTO_KEYWORDS:
+        if kw in lower:
+            if any(auto_term in lower for auto_term in ("auto", "car", "collision", "body shop", "repair", "mechanic")):
+                return False
+            return True
+    return False
+
 def scrape_google_maps(queries, max_per_query=MAX_RESULTS_PER_QUERY, query_limit=None, batch_delay=DEFAULT_BATCH_DELAY):
     all_shops, seen_websites, seen_names = load_existing_shops()
+    all_no_website, seen_no_website = load_existing_no_website()
     completed_queries = load_completed_queries()
     
     # Filter only uncompleted queries
     pending_queries = [q for q in queries if q.lower().strip() not in completed_queries]
     
     initial_count = len(all_shops)
+    initial_no_web = len(all_no_website)
     total_in_file = len(queries)
     already_done = len(completed_queries)
 
@@ -112,7 +155,8 @@ def scrape_google_maps(queries, max_per_query=MAX_RESULTS_PER_QUERY, query_limit
     print(f"   • Total Queries in Plan : {total_in_file}")
     print(f"   • Completed Previously  : {already_done}")
     print(f"   • Remaining to Process  : {len(pending_queries)}")
-    print(f"   • Total Unique Shops    : {initial_count}")
+    print(f"   • Unique Shops w/ Web   : {initial_count} in '{OUTPUT_FILE}' (for Email)")
+    print(f"   • No-Website Web Leads  : {initial_no_web} in '{NO_WEBSITE_FILE}' (for Calling)")
 
     if not pending_queries:
         print("\n🎉 All queries in queries.txt are already completed!")
@@ -148,6 +192,7 @@ def scrape_google_maps(queries, max_per_query=MAX_RESULTS_PER_QUERY, query_limit
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
         new_shops_added = 0
+        new_no_web_added = 0
 
         for q_idx, query in enumerate(queries_to_run, 1):
             print(f"\n" + "=" * 60)
@@ -239,6 +284,7 @@ def scrape_google_maps(queries, max_per_query=MAX_RESULTS_PER_QUERY, query_limit
 
             q_city, q_state = parse_city_state(query, "")
             query_new = 0
+            query_no_web = 0
 
             for card in cards:
                 if max_per_query and query_new >= max_per_query:
@@ -247,28 +293,12 @@ def scrape_google_maps(queries, max_per_query=MAX_RESULTS_PER_QUERY, query_limit
                 try:
                     name_el = card.query_selector("div.qBF1Pd, div.fontHeadlineSmall")
                     name = clean_text(name_el.inner_text()) if name_el else ""
-                    if not name or name.lower().strip() in seen_names:
+                    if not name or is_non_auto_spam(name):
                         continue
 
-                    # Website link
-                    website_el = card.query_selector(
-                        "a.lcr4fd, a[data-value*='Website' i], a[aria-label*='website' i], a[href^='http']:not([href*='google.com']):not([href*='schedule']):not([href*='booking'])"
-                    )
-                    website = website_el.get_attribute("href") if website_el else ""
-                    if website:
-                        website = website.split("?")[0].strip()
+                    name_lower = name.lower().strip()
 
-                    if not website:
-                        continue
-
-                    website_clean = website.lower().strip()
-                    if website_clean in seen_websites:
-                        continue
-
-                    # Skip social/directory duplicates
-                    if any(d in website_clean for d in ("facebook.com", "instagram.com", "yelp.com", "yellowpages.com")):
-                        continue
-
+                    # Common card details
                     card_text = card.inner_text()
                     phone = extract_phone(card_text)
 
@@ -294,30 +324,74 @@ def scrape_google_maps(queries, max_per_query=MAX_RESULTS_PER_QUERY, query_limit
                     if not state:
                         state = q_state
 
-                    shop_record = {
-                        "name": name,
-                        "website": website,
-                        "phone": phone,
-                        "address": address,
-                        "city": city,
-                        "state": state,
-                        "rating": rating
-                    }
+                    # Google Maps Place URL
+                    gmaps_link_el = card.query_selector("a.hfpxzc")
+                    google_maps_url = gmaps_link_el.get_attribute("href") if gmaps_link_el else ""
+                    if google_maps_url:
+                        google_maps_url = google_maps_url.split("?")[0].strip()
 
-                    seen_names.add(name.lower().strip())
-                    seen_websites.add(website_clean)
-                    all_shops.append(shop_record)
-                    query_new += 1
-                    new_shops_added += 1
-                    print(f"   ➕ [{query_new}] {name} | {website} | {phone}")
+                    # Website link
+                    website_el = card.query_selector(
+                        "a.lcr4fd, a[data-value*='Website' i], a[aria-label*='website' i], a[href^='http']:not([href*='google.com']):not([href*='schedule']):not([href*='booking'])"
+                    )
+                    website = website_el.get_attribute("href") if website_el else ""
+                    if website:
+                        website = website.split("?")[0].strip()
+
+                    has_valid_website = bool(
+                        website and 
+                        website.startswith("http") and 
+                        "google.com" not in website and 
+                        "/aclk" not in website and 
+                        not any(d in website.lower() for d in ("facebook.com", "instagram.com", "yelp.com", "yellowpages.com"))
+                    )
+
+                    # STREAM 1: HAS WEBSITE -> shops.csv (for Cold Email Pipeline)
+                    if has_valid_website:
+                        website_clean = website.lower().strip()
+                        if name_lower not in seen_names and website_clean not in seen_websites:
+                            shop_record = {
+                                "name": name,
+                                "website": website,
+                                "phone": phone,
+                                "address": address,
+                                "city": city,
+                                "state": state,
+                                "rating": rating
+                            }
+                            seen_names.add(name_lower)
+                            seen_websites.add(website_clean)
+                            all_shops.append(shop_record)
+                            query_new += 1
+                            new_shops_added += 1
+                            print(f"   ➕ [{query_new}] {name} | {website} | {phone}")
+
+                    # STREAM 2: NO WEBSITE (or only social/yelp) -> no-website.csv (for Web Development Cold Calling)
+                    else:
+                        if name_lower not in seen_no_website:
+                            no_web_record = {
+                                "name": name,
+                                "phone": phone,
+                                "address": address,
+                                "city": city,
+                                "state": state,
+                                "rating": rating,
+                                "google_maps_url": google_maps_url
+                            }
+                            seen_no_website.add(name_lower)
+                            all_no_website.append(no_web_record)
+                            query_no_web += 1
+                            new_no_web_added += 1
+                            print(f"   📞 [No-Web #{len(all_no_website)}] {name} | {phone or 'No phone'} | {city}")
 
                 except Exception:
                     continue
 
-            print(f"   ✅ Saved {query_new} new unique shops from '{query}'.")
+            print(f"   ✅ Saved {query_new} with website ('shops.csv') & {query_no_web} without website ('no-website.csv') from '{query}'.")
 
             # Save immediately and mark query completed
             save_shops(all_shops)
+            save_no_website(all_no_website)
             mark_query_completed(query)
 
             # Random polite delay between individual queries
@@ -343,7 +417,7 @@ def scrape_google_maps(queries, max_per_query=MAX_RESULTS_PER_QUERY, query_limit
 
         browser.close()
 
-    print(f"\n🎉 Session complete! Added {new_shops_added} new shops (Database Total: {len(all_shops)}).")
+    print(f"\n🎉 Session complete! Added {new_shops_added} shops w/ web ('shops.csv': {len(all_shops)}) and {new_no_web_added} no-web leads ('no-website.csv': {len(all_no_website)}).")
     return all_shops
 
 def main():

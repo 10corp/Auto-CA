@@ -36,7 +36,15 @@ def check_domain_mx(domain):
         return False, "invalid_or_tracking_domain"
 
     try:
-        resolver = dns.resolver.Resolver()
+        try:
+            resolver = dns.resolver.Resolver()
+        except Exception:
+            resolver = dns.resolver.Resolver(configure=False)
+            resolver.nameservers = ['8.8.8.8', '1.1.1.1', '8.8.4.4']
+        
+        if not getattr(resolver, 'nameservers', None):
+            resolver.nameservers = ['8.8.8.8', '1.1.1.1', '8.8.4.4']
+
         resolver.timeout = 4.0
         resolver.lifetime = 4.0
         
@@ -107,10 +115,11 @@ def main():
             with open(OUTPUT_FILE, "r", encoding="utf-8") as vf:
                 r_prev = csv.DictReader(vf)
                 for row_prev in r_prev:
-                    em = row_prev.get("email", "").strip().lower()
-                    if em:
+                    clean_prev = {k: v for k, v in row_prev.items() if k is not None}
+                    em = clean_prev.get("email", "").strip().lower()
+                    if em and "@" in em and EMAIL_REGEX.match(em):
                         seen_verified_emails.add(em)
-                    verified_leads.append(row_prev)
+                        verified_leads.append(clean_prev)
             if verified_leads:
                 print(f"📂 Loaded {len(verified_leads)} already verified leads from '{OUTPUT_FILE}'.")
         except Exception:
@@ -120,23 +129,24 @@ def main():
 
     with open(INPUT_FILE, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        fieldnames = reader.fieldnames or []
+        fieldnames = [fn for fn in (reader.fieldnames or []) if fn is not None]
         for row in reader:
-            email = row.get("email", "").strip().lower()
-            name = row.get("name", "Unknown Shop")
+            clean_row = {k: v for k, v in row.items() if k is not None}
+            email = clean_row.get("email", "").strip().lower()
+            name = clean_row.get("name", "Unknown Shop")
 
-            if not email:
+            if not email or "@" not in email or not EMAIL_REGEX.match(email):
                 continue
 
             if email in seen_verified_emails:
                 continue
 
             total += 1
-            is_valid, reason = verify_lead(row)
+            is_valid, reason = verify_lead(clean_row)
             if is_valid:
                 valid_count += 1
-                row["mx_status"] = "Valid"
-                verified_leads.append(row)
+                clean_row["mx_status"] = "Valid"
+                verified_leads.append(clean_row)
                 seen_verified_emails.add(email)
                 print(f"   ✅ [VALID] {name} -> {email} ({reason})")
             else:
@@ -149,19 +159,23 @@ def main():
         with open(INPUT_FILE, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                row["mx_status"] = "Unverified"
-                verified_leads.append(row)
+                clean_row = {k: v for k, v in row.items() if k is not None}
+                em = clean_row.get("email", "").strip().lower()
+                if em and "@" in em and EMAIL_REGEX.match(em):
+                    clean_row["mx_status"] = "Unverified"
+                    verified_leads.append(clean_row)
 
     # Ensure fieldnames has mx_status
-    out_fieldnames = list(fieldnames)
+    out_fieldnames = [fn for fn in fieldnames if fn is not None]
     if "mx_status" not in out_fieldnames:
         out_fieldnames.append("mx_status")
 
     with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=out_fieldnames)
+        writer = csv.DictWriter(f, fieldnames=out_fieldnames, extrasaction="ignore")
         writer.writeheader()
         for lead in verified_leads:
-            writer.writerow(lead)
+            clean_lead = {k: v for k, v in lead.items() if k is not None}
+            writer.writerow(clean_lead)
 
     print("\n" + "=" * 50)
     print("📊 DNS & MX Verification Summary:")

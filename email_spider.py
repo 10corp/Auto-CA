@@ -68,13 +68,23 @@ class EmailSpider(scrapy.Spider):
                 with open(self.output_file, "r", encoding="utf-8") as ef:
                     r = csv.DictReader(ef)
                     for row in r:
-                        em = row.get("email", "").strip().lower()
-                        web = row.get("website", "").strip().lower()
-                        if em and self.is_clean_email(em):
+                        clean_r = {k: v for k, v in row.items() if k is not None}
+                        em = clean_r.get("email", "").strip().lower()
+                        web = clean_r.get("website", "").strip().lower()
+                        if em and "@" in em and self.is_clean_email(em):
                             self.found_emails.add(em)
                             if web:
                                 self.already_scraped_websites.add(web)
-                            self.existing_items.append(row)
+                            item = {
+                                'name': (clean_r.get('name') or '').strip().replace('\n', ' ').replace('\r', ''),
+                                'email': em,
+                                'website': (clean_r.get('website') or '').strip(),
+                                'phone': (clean_r.get('phone') or '').strip(),
+                                'address': (clean_r.get('address') or '').strip().replace('\n', ' ').replace('\r', ''),
+                                'city': (clean_r.get('city') or '').strip(),
+                                'state': (clean_r.get('state') or '').strip()
+                            }
+                            self.existing_items.append(item)
             except Exception:
                 pass
 
@@ -161,13 +171,13 @@ class EmailSpider(scrapy.Spider):
             self.found_emails.add(best_email)
             self.logger.info(f"📧 Found email for {shop_name}: {best_email}")
             yield {
-                'name': shop.get('name', ''),
-                'email': best_email,
-                'website': shop.get('website', ''),
-                'phone': shop.get('phone', ''),
-                'address': shop.get('address', ''),
-                'city': shop.get('city', ''),
-                'state': shop.get('state', '')
+                'name': (shop.get('name') or '').strip().replace('\n', ' ').replace('\r', ''),
+                'email': best_email.strip(),
+                'website': (shop.get('website') or '').strip(),
+                'phone': (shop.get('phone') or '').strip(),
+                'address': (shop.get('address') or '').strip().replace('\n', ' ').replace('\r', ''),
+                'city': (shop.get('city') or '').strip(),
+                'state': (shop.get('state') or '').strip()
             }
         else:
             contact_links = response.xpath(
@@ -206,13 +216,13 @@ class EmailSpider(scrapy.Spider):
             self.found_emails.add(best_email)
             self.logger.info(f"📧 Found subpage email for {shop.get('name')}: {best_email}")
             yield {
-                'name': shop.get('name', ''),
-                'email': best_email,
-                'website': shop.get('website', ''),
-                'phone': shop.get('phone', ''),
-                'address': shop.get('address', ''),
-                'city': shop.get('city', ''),
-                'state': shop.get('state', '')
+                'name': (shop.get('name') or '').strip().replace('\n', ' ').replace('\r', ''),
+                'email': best_email.strip(),
+                'website': (shop.get('website') or '').strip(),
+                'phone': (shop.get('phone') or '').strip(),
+                'address': (shop.get('address') or '').strip().replace('\n', ' ').replace('\r', ''),
+                'city': (shop.get('city') or '').strip(),
+                'state': (shop.get('state') or '').strip()
             }
 
     def handle_error(self, failure):

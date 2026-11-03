@@ -19,6 +19,7 @@ if hasattr(sys.stderr, "reconfigure"):
 COMPLETED_QUERIES_FILE = "completed_queries.txt"
 QUERIES_FILE = "queries.txt"
 SHOPS_FILE = "shops.csv"
+NO_WEBSITE_FILE = "no-website.csv"
 LEADS_FILE = "campaign_ready_leads.csv"
 
 def print_banner(step_num, title):
@@ -63,6 +64,11 @@ def get_stats():
         with open(SHOPS_FILE, "r", encoding="utf-8") as f:
             shops_count = max(0, sum(1 for _ in f) - 1)
 
+    no_web_count = 0
+    if os.path.exists(NO_WEBSITE_FILE):
+        with open(NO_WEBSITE_FILE, "r", encoding="utf-8") as f:
+            no_web_count = max(0, sum(1 for _ in f) - 1)
+
     leads_count = 0
     if os.path.exists(LEADS_FILE):
         with open(LEADS_FILE, "r", encoding="utf-8") as f:
@@ -86,6 +92,7 @@ def get_stats():
         "completed_queries": completed_queries,
         "remaining_queries": max(0, total_queries - completed_queries),
         "shops_count": shops_count,
+        "no_web_count": no_web_count,
         "leads_count": leads_count,
         "next_query": next_query
     }
@@ -99,7 +106,8 @@ def print_dashboard():
     print(f"📊 Search Progress       : {s['completed_queries']} / {s['total_queries']} queries done ({pct}%)")
     print(f"⏳ Remaining Queries     : {s['remaining_queries']}")
     print(f"📍 Next Query in Queue   : '{s['next_query']}'")
-    print(f"🏢 Scraped Unique Shops  : {s['shops_count']} in 'shops.csv'")
+    print(f"🏢 Shops with Website    : {s['shops_count']} in 'shops.csv' (for Cold Email)")
+    print(f"📞 No-Website Leads      : {s['no_web_count']} in '{NO_WEBSITE_FILE}' (for Web Dev Calling)")
     print(f"🎯 Campaign-Ready Leads  : {s['leads_count']} in '{LEADS_FILE}'")
     print("=" * 65)
 
